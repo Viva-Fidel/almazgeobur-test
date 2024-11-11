@@ -1,0 +1,71 @@
+services:
+  backend:
+    container_name: backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: bash -c "python manage.py collectstatic --no-input && python manage.py makemigrations && python manage.py migrate && gunicorn -c gunicorn_config.py almazgeobur_test.wsgi:application"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  redis:
+    container_name: redis
+    image: redis:alpine
+
+  celery:
+    container_name: celery
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A almazgeobur_test worker -l INFO
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_started
+  
+  celery-beat:
+    container_name: celery-beat
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A almazgeobur_test beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_started
+
+  postgres:
+    container_name: postgres
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:${DB_PORT}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus
+    volumes:
+      - ./prometheus/:/etc/prometheus/
+    ports:
+      - "9090:9090"
+
+volumes:
+  postgres_data:
